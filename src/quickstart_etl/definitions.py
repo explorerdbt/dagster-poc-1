@@ -1,53 +1,51 @@
-from pathlib import Path
+import random
+import pandas as pd
+import plotly.express as px
 
-from dagster import (
-    Definitions,
-    ScheduleDefinition,
-    define_asset_job,
-    graph_asset,
-    link_code_references_to_git,
-    op,
-    with_source_code_references,
-)
-from dagster._core.definitions.metadata.source_code import AnchorBasedFilePathMapping
+from dagster import asset, Definitions, Output, MetadataValue
 
-from .defs.assets import most_frequent_words, topstories, topstory_ids
+@asset
+def pipeline_with_logs_and_chart(context):
+    context.log.info("Pipeline started")
+    context.log.info("Processing data")
 
-daily_refresh_schedule = ScheduleDefinition(
-    job=define_asset_job(name="all_assets_job"), cron_schedule="0 0 * * *"
-)
+    run_status = random.choice(["SUCCESS", "FAILURE"])
+    context.log.info(f"Pipeline status: {run_status}")
 
+    df = pd.DataFrame({
+        "status": ["SUCCESS", "FAILURE"],
+        "count": [
+            1 if run_status == "SUCCESS" else 0,
+            1 if run_status == "FAILURE" else 0
+        ]
+    })
 
-@op
-def foo_op():
-    return 5
+    fig = px.bar(
+        df,
+        x="status",
+        y="count",
+        title="Pipeline Run Status",
+        color="status",
+        color_discrete_map={
+            "SUCCESS": "green",
+            "FAILURE": "red"
+        }
+    )
 
+    if run_status == "FAILURE":
+        context.log.error("Pipeline failed intentionally")
+        raise Exception("Intentional failure for POC")
 
-@graph_asset
-def my_asset():
-    return foo_op()
+    context.log.info("Pipeline completed successfully")
 
+    return Output(
+        value=df,
+        metadata={
+            "Run Status Chart": MetadataValue.plotly(fig)
+        }
+    )
 
-my_assets = with_source_code_references(
-    [
-        my_asset,
-        topstory_ids,
-        topstories,
-        most_frequent_words,
-    ]
-)
-
-my_assets = link_code_references_to_git(
-    assets_defs=my_assets,
-    git_url="https://github.com/dagster-io/dagster/",
-    git_branch="master",
-    file_path_mapping=AnchorBasedFilePathMapping(
-        local_file_anchor=Path(__file__).parent,
-        file_anchor_path_in_repository="examples/quickstart_etl/src/quickstart_etl/",
-    ),
-)
 
 defs = Definitions(
-    assets=my_assets,
-    schedules=[daily_refresh_schedule],
+    assets=[pipeline_with_logs_and_chart]
 )
